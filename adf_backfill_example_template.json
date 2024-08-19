@@ -1,0 +1,320 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "factoryName": {
+            "defaultValue": "",
+            "type": "String",
+            "metadata": "Data Factory name"
+        },
+        "triggerStartTime": {
+            "defaultValue": "2024-08-01T00:00:00Z",
+            "type": "String",
+            "metadata": "Trigger start time"
+        },
+        "storageAccountName": {
+            "defaultValue": "",
+            "type": "String",
+            "metadata": "Storage Account name"
+        },
+        "storageType": {
+            "defaultValue": "Standard_LRS",
+            "allowedValues": [
+                "Standard_LRS",
+                "Standard_ZRS",
+                "Standard_GRS",
+                "Standard_RAGRS",
+                "Premium_LRS"
+            ],
+            "type": "String"
+        }
+    },
+    "variables": {
+        "factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]",
+        "storageId": "[concat('Microsoft.Storage/storageAccounts/', parameters('storageAccountName'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Storage/storageAccounts",
+            "apiVersion": "2021-09-01",
+            "name": "[parameters('storageAccountName')]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [],
+            "tags": {
+                "displayName": "k"
+            },
+            "sku": {
+                "name": "[parameters('storageType')]"
+            },
+            "kind": "StorageV2"
+        },
+        {
+            "type": "Microsoft.DataFactory/factories",
+            "apiVersion": "2018-06-01",
+            "name": "[parameters('factoryName')]",
+            "location": "[resourceGroup().location]"
+        },
+        {
+            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/ls_adls_gen2')]",
+            "dependsOn": [
+                "[variables('factoryId')]",
+                "[variables('storageId')]"
+            ],
+            "properties": {
+                "annotations": [],
+                "type": "AzureBlobFS",
+                "typeProperties": {
+                    "url": "[concat('https://', parameters('storageAccountName'), '.dfs.core.windows.net')]",
+                    "accountKey": {
+                        "type": "SecureString",
+                        "value": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), '2021-09-01').keys[0].value]"
+                    }
+                }
+            }
+        },
+        {
+            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/ls_rest_source_data')]",
+            "dependsOn": [
+                "[variables('factoryId')]"
+            ],
+            "properties": {
+                "annotations": [],
+                "type": "RestService",
+                "typeProperties": {
+                    "url": "https://api.luchtmeetnet.nl/open_api/",
+                    "enableServerCertificateValidation": true,
+                    "authenticationType": "Anonymous"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/ds_src_rest_api_luchtmeetnet')]",
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/ls_rest_source_data')]"
+            ],
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "ls_rest_source_data",
+                    "type": "LinkedServiceReference"
+                },
+                "parameters": {
+                    "endpoint": {
+                        "type": "string"
+                    }
+                },
+                "annotations": [],
+                "type": "RestResource",
+                "typeProperties": {
+                    "relativeUrl": {
+                        "value": "@dataset().endpoint",
+                        "type": "Expression"
+                    }
+                },
+                "schema": []
+            }
+        },
+        {
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/ds_tgt_adls_json')]",
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/ls_adls_gen2')]"
+            ],
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "ls_adls_gen2",
+                    "type": "LinkedServiceReference"
+                },
+                "parameters": {
+                    "container": {
+                        "type": "string",
+                        "defaultValue": "bronze"
+                    },
+                    "dir": {
+                        "type": "string"
+                    },
+                    "filename": {
+                        "type": "string"
+                    },
+                    "fileextension": {
+                        "type": "string",
+                        "defaultValue": ".json"
+                    }
+                },
+                "annotations": [],
+                "type": "Json",
+                "typeProperties": {
+                    "location": {
+                        "type": "AzureBlobFSLocation",
+                        "fileName": {
+                            "value": "@concat(dataset().filename, dataset().fileextension)",
+                            "type": "Expression"
+                        },
+                        "folderPath": {
+                            "value": "@dataset().dir",
+                            "type": "Expression"
+                        },
+                        "fileSystem": {
+                            "value": "@dataset().container",
+                            "type": "Expression"
+                        }
+                    }
+                },
+                "schema": {}
+            }
+        },
+        {
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/api_to_adls')]",
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/datasets/ds_src_rest_api_luchtmeetnet')]",
+                "[concat(variables('factoryId'), '/datasets/ds_tgt_adls_json')]"
+            ],
+            "properties": {
+                "activities": [
+                    {
+                        "name": "api to adls",
+                        "type": "Copy",
+                        "dependsOn": [
+                            {
+                                "activity": "Set end date",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "policy": {
+                            "timeout": "0.12:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "source": {
+                                "type": "RestSource",
+                                "httpRequestTimeout": "00:01:40",
+                                "requestInterval": "00.00:00:00.010",
+                                "requestMethod": "GET",
+                                "paginationRules": {
+                                    "supportRFC5988": "true"
+                                }
+                            },
+                            "sink": {
+                                "type": "JsonSink",
+                                "storeSettings": {
+                                    "type": "AzureBlobFSWriteSettings",
+                                    "copyBehavior": "PreserveHierarchy"
+                                },
+                                "formatSettings": {
+                                    "type": "JsonWriteSettings"
+                                }
+                            },
+                            "enableStaging": false
+                        },
+                        "inputs": [
+                            {
+                                "referenceName": "ds_src_rest_api_luchtmeetnet",
+                                "type": "DatasetReference",
+                                "parameters": {
+                                    "endpoint": {
+                                        "value": "@concat(\n    'measurements?start=', pipeline().parameters.start_date,\n    '&end=', variables('end_date')\n    )",
+                                        "type": "Expression"
+                                    }
+                                }
+                            }
+                        ],
+                        "outputs": [
+                            {
+                                "referenceName": "ds_tgt_adls_json",
+                                "type": "DatasetReference",
+                                "parameters": {
+                                    "container": "bronze",
+                                    "dir": "luchtmeetnet_api/measurements",
+                                    "filename": {
+                                        "value": "@concat(\n    'data_',\n    formatDateTime(pipeline().parameters.start_date, 'yyyymmdd_HH')\n    )",
+                                        "type": "Expression"
+                                    },
+                                    "fileextension": ".json"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "name": "Set end date",
+                        "type": "SetVariable",
+                        "dependsOn": [],
+                        "policy": {
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "variableName": "end_date",
+                            "value": {
+                                "value": "@addseconds(pipeline().parameters.start_date, 3599)",
+                                "type": "Expression"
+                            }
+                        }
+                    }
+                ],
+                "policy": {
+                    "elapsedTimeMetric": {}
+                },
+                "parameters": {
+                    "start_date": {
+                        "type": "string"
+                    }
+                },
+                "variables": {
+                    "end_date": {
+                        "type": "String"
+                    }
+                },
+                "annotations": [],
+                "lastPublishTime": "2024-08-16T17:32:40Z"
+            }
+        },
+        {
+            "type": "Microsoft.DataFactory/factories/triggers",
+            "apiVersion": "2018-06-01",
+            "name": "[concat(parameters('factoryName'), '/tmbl_trigger_api')]",
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/pipelines/api_to_adls')]"
+            ],
+            "properties": {
+                "annotations": [],
+                "runtimeState": "Stopped",
+                "pipeline": {
+                    "pipelineReference": {
+                        "referenceName": "api_to_adls",
+                        "type": "PipelineReference"
+                    },
+                    "parameters": {
+                        "start_date": "@trigger().outputs.windowStartTime"
+                    }
+                },
+                "type": "TumblingWindowTrigger",
+                "typeProperties": {
+                    "frequency": "Hour",
+                    "interval": 1,
+                    "startTime": "[parameters('triggerStartTime')]",
+                    "delay": "00:00:00",
+                    "maxConcurrency": 4,
+                    "retryPolicy": {
+                        "intervalInSeconds": 30
+                    },
+                    "dependsOn": []
+                }
+            }
+        }
+    ]
+}
