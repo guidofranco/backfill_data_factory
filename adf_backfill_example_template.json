@@ -36,13 +36,10 @@
     "resources": [
         {
             "type": "Microsoft.Storage/storageAccounts",
-            "apiVersion": "2021-09-01",
+            "apiVersion": "2023-01-01",
             "name": "[parameters('storageAccountName')]",
             "location": "[resourceGroup().location]",
             "dependsOn": [],
-            "tags": {
-                "displayName": "k"
-            },
             "sku": {
                 "name": "[parameters('storageType')]"
             },
