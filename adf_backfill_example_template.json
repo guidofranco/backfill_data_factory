@@ -43,7 +43,10 @@
             "sku": {
                 "name": "[parameters('storageType')]"
             },
-            "kind": "StorageV2"
+            "kind": "StorageV2",
+            "properties": {
+                "isHnsEnabled": true
+            }
         },
         {
             "type": "Microsoft.DataFactory/factories",
