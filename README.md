@@ -27,3 +27,9 @@ El tipo de trigger a utilizar, `tumbling window trigger`. Una de las caracterís
 Podemos definir como fecha de inicio del trigger una fecha pasada como el primer día de este año y un intervalo de ejecución de 1 día. Así tendremos varias ejecuciones programadas para poder recuperar los datos de todo el año y de forma controlada ya que cada ejecución se encargará de recuperar los datos de una hora en particular sin saturar a la API.
 
 Lo importante es que en un solo desarrollo hemos unificado la obtención de datos históricos y la extracción incremental, simplificando la implementación y mantenimiento del pipeline.
+
+En este repositorio encontrarás un template de Azure Data Factory que implementa este escenario. Puedes desplegarlo en tu suscripción de Azure con el botón de arriba.
+El template incluye:
+- Una instancia de Azure Storage Account para almacenar los datos extraídos,
+- Una instancia de Azure Data Factory,
+- Un pipeline con sus respectos datasets, linked services y activities.
